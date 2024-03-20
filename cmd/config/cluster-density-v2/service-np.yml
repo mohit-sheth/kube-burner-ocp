@@ -2,7 +2,7 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: cluster-density-{{.Replica}}
+  name: cluster-density-np-{{.Replica}}
 spec:
   selector:
     name: nginx
@@ -11,4 +11,4 @@ spec:
     protocol: TCP
     port: 80
     targetPort: 8080
-  type: ClusterIP
+  type: NodePort

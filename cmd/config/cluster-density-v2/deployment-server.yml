@@ -7,20 +7,13 @@ spec:
   replicas: {{.podReplicas}}
   selector:
     matchLabels:
-      name: cluster-density-{{.Replica}}
+      app: cluster-density-{{.Replica}}
   template:
     metadata:
       labels:
-        name: cluster-density-{{.Replica}}
-        app: nginx
+        app: cluster-density-{{.Replica}}
+        name: nginx
     spec:
-      topologySpreadConstraints:
-      - maxSkew: 1 
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway 
-        labelSelector: 
-          matchLabels:
-            app: nginx
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

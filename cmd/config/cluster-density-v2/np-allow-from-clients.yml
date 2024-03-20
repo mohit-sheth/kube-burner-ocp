@@ -5,7 +5,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: nginx
+      name: nginx
   ingress:
   - from:
     - namespaceSelector:
@@ -13,10 +13,7 @@ spec:
           kubernetes.io/metadata.name: cluster-density-v2-{{.Iteration}}
       podSelector:
         matchLabels:
-          app: client
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-burner-service-latency
-    ports:
+          name: client
+  - ports:
     - protocol: TCP
       port: 8080

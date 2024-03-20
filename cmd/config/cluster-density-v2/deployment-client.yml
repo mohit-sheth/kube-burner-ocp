@@ -6,20 +6,13 @@ spec:
   replicas: {{.podReplicas}}
   selector:
     matchLabels:
-      name: client-{{.Replica}}
+      app: client-{{.Replica}}
   template:
     metadata:
       labels:
-        name: client-{{.Replica}}
-        app: client
+        app: client-{{.Replica}}
+        name: client
     spec:
-      topologySpreadConstraints:
-      - maxSkew: 1 
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway 
-        labelSelector: 
-          matchLabels:
-            app: client
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -48,7 +41,7 @@ spec:
             command:
             - "/bin/sh"
             - "-c"
-            - "curl --fail -sS ${SERVICE_ENDPOINT} -o /dev/null && curl --fail -sSk ${ROUTE_ENDPOINT} -o /dev/null"
+            - "curl --fail -sS ${SERVICE_ENDPOINT} -o /dev/null"
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
@@ -83,7 +76,7 @@ spec:
         - name: ROUTE_ENDPOINT
           value: "https://cluster-density-{{.Replica}}-cluster-density-v2-{{.Iteration}}.{{ .ingressDomain }}/256.html"
         - name: SERVICE_ENDPOINT
-          value: "http://cluster-density-{{randInt 1 6}}/256.html"
+          value: "http://cluster-density-{{randInt 1 75}}/256.html"
       volumes:
       - name: secret-1
         secret:

@@ -39,36 +39,31 @@ jobs:
       pod-security.kubernetes.io/enforce: privileged
       pod-security.kubernetes.io/audit: privileged
       pod-security.kubernetes.io/warn: privileged
+
     objects:
 
-      - objectTemplate: imagestream.yml
-        replicas: 1
-
-      - objectTemplate: build.yml
-        replicas: 1
-
       - objectTemplate: deployment-server.yml
-        replicas: 3
+        replicas: 20
         inputVars:
           podReplicas: 2
 
       - objectTemplate: deployment-client.yml
-        replicas: 2
+        replicas: 20
         inputVars:
           podReplicas: 2
           ingressDomain: {{.INGRESS_DOMAIN}}
 
       - objectTemplate: service.yml
-        replicas: 5
+        replicas: 75
         
-      - objectTemplate: route.yml
-        replicas: 2
-
       - objectTemplate: secret.yml
-        replicas: 10
+        replicas: 20
+
+      - objectTemplate: service-np.yml
+        replicas: 4
 
       - objectTemplate: configmap.yml
-        replicas: 10
+        replicas: 15
 
       - objectTemplate: np-deny-all.yml
         replicas: 1
@@ -78,3 +73,7 @@ jobs:
 
       - objectTemplate: np-allow-from-ingress.yml
         replicas: 1
+
+      - objectTemplate: np-allow-from-same-namepsace.yml
+        replicas: 1
+
