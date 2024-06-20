@@ -16,16 +16,19 @@ package ocp
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	ocpmetadata "github.com/cloud-bulldozer/go-commons/ocp-metadata"
+	"github.com/kube-burner/kube-burner/pkg/config"
 	"github.com/kube-burner/kube-burner/pkg/workloads"
 	"github.com/spf13/cobra"
 )
 
 const clusterMetadataMetric = "clusterMetadata"
 
-func getMetrics(cmd *cobra.Command, metricsProfile string) []string {
+func setMetrics(cmd *cobra.Command, metricsProfile string) {
 	var metricsProfiles []string
 	profileType, _ := cmd.Root().PersistentFlags().GetString("profile-type")
 	switch ProfileType(profileType) {
@@ -36,13 +39,15 @@ func getMetrics(cmd *cobra.Command, metricsProfile string) []string {
 	case Both:
 		metricsProfiles = []string{"metrics-report.yml", metricsProfile}
 	}
-	return metricsProfiles
+	os.Setenv("METRICS", strings.Join(metricsProfiles, ","))
 }
 
 // SetKubeBurnerFlags configures the required environment variables and flags for kube-burner
 func GatherMetadata(wh *workloads.WorkloadHelper, alerting bool) error {
 	var err error
-	wh.MetadataAgent, err = ocpmetadata.NewMetadata(wh.RestConfig)
+	kubeClientProvider := config.NewKubeClientProvider("", "")
+	_, restConfig := kubeClientProvider.DefaultClientSet()
+	wh.MetadataAgent, err = ocpmetadata.NewMetadata(restConfig)
 	if err != nil {
 		return err
 	}

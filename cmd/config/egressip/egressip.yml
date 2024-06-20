@@ -7,51 +7,59 @@ global:
       thresholds:
         - conditionType: Ready
           metric: P99
-          threshold: {{.POD_READY_THRESHOLD}}
+          threshold: 15s
 metricsEndpoints:
 {{ if .ES_SERVER }}
-  - metrics: [{{.METRICS}}]
-    alerts: [{{.ALERTS}}]
-    indexer:
+  - indexer:
       esServers: ["{{.ES_SERVER}}"]
       insecureSkipVerify: true
       defaultIndex: {{.ES_INDEX}}
       type: opensearch
 {{ end }}
 {{ if eq .LOCAL_INDEXING "true" }}
-  - metrics: [{{.METRICS}}]
-    alerts: [{{.ALERTS}}]
-    indexer:
+  - indexer:
       type: local
       metricsDirectory: collected-metrics-{{.UUID}}
 {{ end }}
 
 jobs:
-  - name: node-density-heavy
-    namespace: node-density-heavy
+  - name: egressip
+    namespace: egressip
     jobIterations: {{.JOB_ITERATIONS}}
     qps: {{.QPS}}
     burst: {{.BURST}}
-    namespacedIterations: {{.NAMESPACED_ITERATIONS}}
-    iterationsPerNamespace: {{.ITERATIONS_PER_NAMESPACE}}
+    namespacedIterations: true
     podWait: false
     waitWhenFinished: true
-    preLoadImages: true
+    preLoadImages: false
     preLoadPeriod: 15s
     namespaceLabels:
       security.openshift.io/scc.podSecurityLabelSync: false
       pod-security.kubernetes.io/enforce: privileged
       pod-security.kubernetes.io/audit: privileged
       pod-security.kubernetes.io/warn: privileged
+      openshift.io/cluster-monitoring: true
     objects:
 
-      - objectTemplate: postgres-deployment.yml
+      - objectTemplate: prometheus_role.yml
         replicas: 1
 
-      - objectTemplate: app-deployment.yml
+      - objectTemplate: prometheus_role_binding.yml
+        replicas: 1
+      
+      - objectTemplate: pod_monitor.yml
+        replicas: 1
+
+      - objectTemplate: egressip-obj.yml
         replicas: 1
         inputVars:
-          probesPeriod: {{.PROBES_PERIOD}}
-
-      - objectTemplate: postgres-service.yml
+          eipAddresses: {{.EIP_ADDRESSES}}
+          addrPerIteration: {{.ADDRESSES_PER_ITERATION}}
+          
+      - objectTemplate: deployment-client.yml
         replicas: 1
+        inputVars:
+          podReplicas: 2
+          eipAddresses: {{.EIP_ADDRESSES}}
+          addrPerIteration: {{.ADDRESSES_PER_ITERATION}}
+          extServerHost: {{.EXTERNAL_SERVER_IP}}

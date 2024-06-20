@@ -20,12 +20,11 @@ import (
 	"os"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/cloud-bulldozer/go-commons/indexers"
 	uid "github.com/google/uuid"
+	"github.com/kube-burner/kube-burner/pkg/config"
 	"github.com/kube-burner/kube-burner/pkg/util"
 	"github.com/kube-burner/kube-burner/pkg/workloads"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"kube-burner.io/ocp"
 )
@@ -62,9 +61,7 @@ func openShiftCmd() *cobra.Command {
 	extract := ocpCmd.PersistentFlags().Bool("extract", false, "Extract workload in the current directory")
 	ocpCmd.PersistentFlags().StringVar(&metricsProfileType, "profile-type", "both", "Metrics profile to use, supported options are: regular, reporting or both")
 	ocpCmd.MarkFlagsRequiredTogether("es-server", "es-index")
-	ocpCmd.MarkFlagsMutuallyExclusive("es-server", "local-indexing")
 	ocpCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		var indexer string
 		if cmd.Name() == "version" {
 			return
 		}
@@ -75,26 +72,24 @@ func openShiftCmd() *cobra.Command {
 			}
 			os.Exit(0)
 		}
-		if esServer != "" || *localIndexing {
-			if esServer != "" {
-				indexer = string(indexers.ElasticIndexer)
-			} else {
-				indexer = string(indexers.LocalIndexer)
-			}
-		}
 		if checkHealth {
 			ocp.ClusterHealthCheck()
 		}
 		workloadConfig.ConfigDir = configDir
-		wh = workloads.NewWorkloadHelper(workloadConfig, ocpConfig)
+		kubeClientProvider := config.NewKubeClientProvider("", "")
+		wh = workloads.NewWorkloadHelper(workloadConfig, ocpConfig, kubeClientProvider)
 		envVars := map[string]string{
-			"ES_SERVER":     esServer,
-			"ES_INDEX":      esIndex,
-			"QPS":           fmt.Sprintf("%d", QPS),
-			"BURST":         fmt.Sprintf("%d", burst),
-			"GC":            fmt.Sprintf("%v", gc),
-			"GC_METRICS":    fmt.Sprintf("%v", gcMetrics),
-			"INDEXING_TYPE": indexer,
+			"UUID":           workloadConfig.UUID,
+			"ES_SERVER":      esServer,
+			"ES_INDEX":       esIndex,
+			"LOCAL_INDEXING": fmt.Sprintf("%v", *localIndexing),
+			"QPS":            fmt.Sprintf("%d", QPS),
+			"BURST":          fmt.Sprintf("%d", burst),
+			"GC":             fmt.Sprintf("%v", gc),
+			"GC_METRICS":     fmt.Sprintf("%v", gcMetrics),
+		}
+		if alerting {
+			envVars["ALERTS"] = "alerts.yml"
 		}
 		for k, v := range envVars {
 			os.Setenv(k, v)
@@ -118,6 +113,7 @@ func openShiftCmd() *cobra.Command {
 		ocp.NewWebBurner(&wh, "web-burner-init"),
 		ocp.NewWebBurner(&wh, "web-burner-node-density"),
 		ocp.NewWebBurner(&wh, "web-burner-cluster-density"),
+		ocp.NewEgressIP(&wh, "egressip"),
 		ocp.ClusterHealth(),
 		ocp.CustomWorkload(&wh),
 	)

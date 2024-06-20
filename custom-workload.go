@@ -18,9 +18,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kube-burner/kube-burner/pkg/config"
 	"github.com/kube-burner/kube-burner/pkg/workloads"
-	"github.com/openshift/client-go/config/clientset/versioned"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -31,17 +29,6 @@ func CustomWorkload(wh *workloads.WorkloadHelper) *cobra.Command {
 		Use:   "init",
 		Short: "Runs custom workload",
 		PreRun: func(cmd *cobra.Command, args []string) {
-			clientSet, restConfig, err := config.GetClientSet(0, 0)
-			if err != nil {
-				log.Fatalf("Error creating clientSet: %s", err)
-			}
-			openshiftClientset, err := versioned.NewForConfig(restConfig)
-			if err != nil {
-				log.Fatalf("Error creating OpenShift clientset: %v", err)
-			}
-			if !ClusterHealthyOcp(clientSet, openshiftClientset) {
-				os.Exit(1)
-			}
 			wh.Metadata.Benchmark = benchmarkName
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -49,10 +36,10 @@ func CustomWorkload(wh *workloads.WorkloadHelper) *cobra.Command {
 				log.Fatalf("Error reading custom configuration file: %v", err.Error())
 			}
 			configFileName := strings.Split(configFile, ".")[0]
-			wh.Run(configFileName, getMetrics(cmd, "metrics.yml"), alertsProfiles)
+			wh.Run(configFileName)
 		},
 	}
-	cmd.Flags().StringVarP(&configFile, "config", "c", "", "Config file path or URL")
+	cmd.Flags().StringVarP(&configFile, "config", "c", "", "Config file path or url")
 	cmd.Flags().StringVarP(&benchmarkName, "benchmark", "b", "custom-workload", "Name of the benchmark")
 	cmd.MarkFlagRequired("config")
 	return cmd

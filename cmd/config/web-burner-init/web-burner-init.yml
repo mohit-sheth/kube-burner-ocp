@@ -2,25 +2,37 @@
 global:
   gc: {{.GC}}
   gcMetrics: {{.GC_METRICS}}
-  indexerConfig:
-    esServers: ["{{.ES_SERVER}}"]
-    insecureSkipVerify: true
-    defaultIndex: {{.ES_INDEX}}
-    type: {{.INDEXING_TYPE}}
   measurements:
     - name: podLatency
       thresholds:
         - conditionType: Ready
           metric: P99
           threshold: {{.POD_READY_THRESHOLD}}
+metricsEndpoints:
+{{ if .ES_SERVER }}
+  - metrics: [{{.METRICS}}]
+    alerts: [{{.ALERTS}}]
+    indexer:
+      esServers: ["{{.ES_SERVER}}"]
+      insecureSkipVerify: true
+      defaultIndex: {{.ES_INDEX}}
+      type: opensearch
+{{ end }}
+{{ if eq .LOCAL_INDEXING "true" }}
+  - metrics: [{{.METRICS}}]
+    alerts: [{{.ALERTS}}]
+    indexer:
+      type: local
+      metricsDirectory: collected-metrics-{{.UUID}}
+{{ end }}
 
 jobs:
 
   - name: create-networks-job
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 10
-    burst: 10
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: {{ if contains .SRIOV "true" }} false {{ else }} true {{ end }}
     cleanup: false
     namespace: {{ if contains .SRIOV "true" }} openshift-sriov-network-operator {{ else }} serving-ns {{ end }}
@@ -28,7 +40,7 @@ jobs:
     waitWhenFinished: false
     verifyObjects: true
     errorOnVerify: false
-    jobIterationDelay: 1s
+    jobIterationDelay: 0s
     jobPause: 0s
     preLoadImages: false
     objects:
@@ -40,8 +52,8 @@ jobs:
   - name: create-serviceaccounts-job
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: true
     cleanup: false
     namespace: serving-ns
@@ -49,7 +61,7 @@ jobs:
     waitWhenFinished: false
     verifyObjects: true
     errorOnVerify: false
-    jobIterationDelay: 1s
+    jobIterationDelay: 0s
     jobPause: 0s
     preLoadImages: false
     objects:
@@ -59,8 +71,8 @@ jobs:
   - name: create-clusterrole-job
     jobType: create
     jobIterations: 1
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: false
     cleanup: false
     namespace: default
@@ -68,7 +80,7 @@ jobs:
     waitWhenFinished: false
     verifyObjects: true
     errorOnVerify: false
-    jobIterationDelay: 1s
+    jobIterationDelay: 0s
     jobPause: 0s
     preLoadImages: false
     objects:
@@ -78,8 +90,8 @@ jobs:
   - name: create-clusterbindings-jobs
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: true
     cleanup: false
     namespace: serving-ns
@@ -87,7 +99,7 @@ jobs:
     waitWhenFinished: false
     verifyObjects: true
     errorOnVerify: false
-    jobIterationDelay: 1s
+    jobIterationDelay: 0s
     jobPause: 0s
     preLoadImages: false
     objects:
@@ -97,8 +109,8 @@ jobs:
   - name: create-rolebindings-jobs
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: true
     cleanup: false
     namespace: serving-ns
@@ -106,7 +118,7 @@ jobs:
     waitWhenFinished: false
     verifyObjects: true
     errorOnVerify: false
-    jobIterationDelay: 1s
+    jobIterationDelay: 0s
     jobPause: 0s
     preLoadImages: false
     objects:
@@ -116,8 +128,8 @@ jobs:
   - name: create-cms-job
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: true
     cleanup: false
     namespace: serving-ns
@@ -125,7 +137,7 @@ jobs:
     waitWhenFinished: false
     verifyObjects: true
     errorOnVerify: false
-    jobIterationDelay: 1s
+    jobIterationDelay: 0s
     jobPause: 0s
     preLoadImages: false
     objects:
@@ -135,8 +147,8 @@ jobs:
   - name: init-served-job
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: true
     cleanup: false
     namespace: served-ns
@@ -147,6 +159,11 @@ jobs:
     jobIterationDelay: 0s
     jobPause: 0s
     preLoadImages: false
+    namespaceLabels:
+      security.openshift.io/scc.podSecurityLabelSync: false
+      pod-security.kubernetes.io/enforce: privileged
+      pod-security.kubernetes.io/audit: privileged
+      pod-security.kubernetes.io/warn: privileged
     objects:
       - objectTemplate: pod_served.yml
         replicas: 1
@@ -155,8 +172,8 @@ jobs:
   - name: init-externalroutes-job
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: false
     cleanup: false
     namespace: default
@@ -178,8 +195,8 @@ jobs:
   - name: serving-job
     jobType: create
     jobIterations: {{ mul .LIMITCOUNT .SCALE }}
-    qps: 20
-    burst: 20
+    qps: {{ .QPS }}
+    burst: {{ .BURST }}
     namespacedIterations: true
     cleanup: false
     namespace: serving-ns

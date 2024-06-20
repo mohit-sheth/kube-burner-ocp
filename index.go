@@ -16,6 +16,7 @@ package ocp
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cloud-bulldozer/go-commons/indexers"
@@ -38,6 +39,7 @@ func NewIndex(metricsEndpoint *string, ocpMetaAgent *ocpmetadata.Metadata) *cobr
 	var rc int
 	var prometheusURL, prometheusToken string
 	var tarballName string
+	var indexer config.MetricsEndpoint
 	cmd := &cobra.Command{
 		Use:          "index",
 		Short:        "Runs index sub-command",
@@ -56,8 +58,25 @@ func NewIndex(metricsEndpoint *string, ocpMetaAgent *ocpmetadata.Metadata) *cobr
 			esServer, _ := cmd.Flags().GetString("es-server")
 			esIndex, _ := cmd.Flags().GetString("es-index")
 			workloads.ConfigSpec.GlobalConfig.UUID = uuid
+			// When metricsEndpoint is specified, don't fetch any prometheus token
+			if *metricsEndpoint == "" {
+				prometheusURL, prometheusToken, err = ocpMetaAgent.GetPrometheus()
+				if err != nil {
+					log.Fatal("Error obtaining prometheus information from cluster: ", err.Error())
+				}
+			}
+			metricsProfiles := strings.FieldsFunc(metricsProfile, func(r rune) bool {
+				return r == ',' || r == ' '
+			})
+			indexer = config.MetricsEndpoint{
+				Endpoint:      prometheusURL,
+				Token:         prometheusToken,
+				Step:          prometheusStep,
+				Metrics:       metricsProfiles,
+				SkipTLSVerify: true,
+			}
 			if esServer != "" && esIndex != "" {
-				workloads.ConfigSpec.GlobalConfig.IndexerConfig = indexers.IndexerConfig{
+				indexer.IndexerConfig = indexers.IndexerConfig{
 					Type:    indexers.ElasticIndexer,
 					Servers: []string{esServer},
 					Index:   esIndex,
@@ -66,18 +85,13 @@ func NewIndex(metricsEndpoint *string, ocpMetaAgent *ocpmetadata.Metadata) *cobr
 				if metricsDirectory == "collected-metrics" {
 					metricsDirectory = metricsDirectory + "-" + uuid
 				}
-				workloads.ConfigSpec.GlobalConfig.IndexerConfig = indexers.IndexerConfig{
+				indexer.IndexerConfig = indexers.IndexerConfig{
 					Type:             indexers.LocalIndexer,
 					MetricsDirectory: metricsDirectory,
+					TarballName:      tarballName,
 				}
 			}
-			// When metricsEndpoint is specified, don't fetch any prometheus token
-			if *metricsEndpoint == "" {
-				prometheusURL, prometheusToken, err = ocpMetaAgent.GetPrometheus()
-				if err != nil {
-					log.Fatal("Error obtaining prometheus information from cluster: ", err.Error())
-				}
-			}
+
 			metadata := map[string]interface{}{
 				"platform":        clusterMetadata.Platform,
 				"ocpVersion":      clusterMetadata.OCPVersion,
@@ -86,14 +100,10 @@ func NewIndex(metricsEndpoint *string, ocpMetaAgent *ocpmetadata.Metadata) *cobr
 				"totalNodes":      clusterMetadata.TotalNodes,
 				"sdnType":         clusterMetadata.SDNType,
 			}
+			workloads.ConfigSpec.MetricsEndpoints = append(workloads.ConfigSpec.MetricsEndpoints, indexer)
 			metricsScraper := metrics.ProcessMetricsScraperConfig(metrics.ScraperConfig{
-				ConfigSpec:      workloads.ConfigSpec,
-				PrometheusStep:  prometheusStep,
+				ConfigSpec:      &workloads.ConfigSpec,
 				MetricsEndpoint: *metricsEndpoint,
-				MetricsProfile:  metricsProfile,
-				SkipTLSVerify:   true,
-				URL:             prometheusURL,
-				Token:           prometheusToken,
 				UserMetaData:    userMetadata,
 				RawMetadata:     metadata,
 			})
@@ -109,14 +119,14 @@ func NewIndex(metricsEndpoint *string, ocpMetaAgent *ocpmetadata.Metadata) *cobr
 					rc = 1
 				}
 			}
-			if workloads.ConfigSpec.GlobalConfig.IndexerConfig.Type == indexers.LocalIndexer && tarballName != "" {
-				if err := metrics.CreateTarball(workloads.ConfigSpec.GlobalConfig.IndexerConfig, tarballName); err != nil {
+			if workloads.ConfigSpec.MetricsEndpoints[0].Type == indexers.LocalIndexer && tarballName != "" {
+				if err := metrics.CreateTarball(workloads.ConfigSpec.MetricsEndpoints[0].IndexerConfig); err != nil {
 					log.Fatal(err)
 				}
 			}
 		},
 	}
-	cmd.Flags().StringVarP(&metricsProfile, "metrics-profile", "m", "metrics.yml", "Metrics profile file")
+	cmd.Flags().StringVarP(&metricsProfile, "metrics-profile", "m", "metrics.yml", "comma-separated list of metric profiles")
 	cmd.Flags().StringVar(&metricsDirectory, "metrics-directory", "collected-metrics", "Directory to dump the metrics files in, when using default local indexing")
 	cmd.Flags().DurationVar(&prometheusStep, "step", 30*time.Second, "Prometheus step size")
 	cmd.Flags().Int64Var(&start, "start", time.Now().Unix()-3600, "Epoch start time")

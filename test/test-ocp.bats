@@ -30,8 +30,8 @@ teardown_file() {
 }
 
 @test "custom-workload as node-density" {
-  run_cmd kube-burner-ocp init --config=custom-workload.yml ${COMMON_FLAGS}
-  check_metric_value etcdVersion clusterMetadata jobSummary podLatencyMeasurement podLatencyQuantilesMeasurement
+  run_cmd kube-burner-ocp init --config=custom-workload.yml ${COMMON_FLAGS} --metrics-endpoint metrics-endpoints.yaml
+  check_metric_value clusterMetadata jobSummary podLatencyMeasurement podLatencyQuantilesMeasurement
 }
 
 @test "node-density: es-indexing=true" {
@@ -76,11 +76,11 @@ teardown_file() {
 }
 
 @test "index: local-indexing=true" {
-  run_cmd kube-burner-ocp index --uuid="${UUID}" --metrics-profile metrics-profile.yaml
+  run_cmd kube-burner-ocp index --uuid="${UUID}" --metrics-profile "metrics.yml,metrics.yml"
 }
 
 @test "index: metrics-endpoints=true; es-indexing=true" {
-  run_cmd kube-burner-ocp index --uuid="${UUID}" --metrics-endpoint metrics-endpoints.yaml --metrics-profile metrics-profile.yaml --es-server=https://search-perfscale-dev-chmf5l4sh66lvxbnadi4bznl3a.us-west-2.es.amazonaws.com:443 --es-index=ripsaw-kube-burner
+  run_cmd kube-burner-ocp index --uuid="${UUID}" --metrics-endpoint metrics-endpoints.yaml --metrics-profile metrics.yml --es-server=https://search-perfscale-dev-chmf5l4sh66lvxbnadi4bznl3a.us-west-2.es.amazonaws.com:443 --es-index=ripsaw-kube-burner
 }
 
 @test "networkpolicy-multitenant" {
@@ -93,7 +93,7 @@ teardown_file() {
   check_metric_value clusterMetadata jobSummary podLatencyMeasurement podLatencyQuantilesMeasurement
 }
 
-@test "web-burner" {
+@test "web-burner-node-density" {
   LB_WORKER=$(oc get node | grep worker | head -n 1 | cut -f 1 -d' ')
   run_cmd oc label node $LB_WORKER node-role.kubernetes.io/worker-spk="" --overwrite
   run_cmd kube-burner-ocp web-burner-init --gc=false --sriov=false --bridge=br-ex --bfd=false --es-server="" --es-index="" --alerting=true --uuid=${UUID} --qps=5 --burst=5
@@ -101,6 +101,18 @@ teardown_file() {
   check_running_pods kube-burner-job=init-served-job 1
   check_running_pods kube-burner-job=serving-job 4
   check_running_pods kube-burner-job=normal-job-1 60
+  run_cmd oc delete project served-ns-0 serving-ns-0
+}
+
+@test "web-burner-cluster-density" {
+  LB_WORKER=$(oc get node | grep worker | head -n 1 | cut -f 1 -d' ')
+  run_cmd oc label node $LB_WORKER node-role.kubernetes.io/worker-spk="" --overwrite
+  run_cmd kube-burner-ocp web-burner-init --gc=false --sriov=false --bridge=br-ex --bfd=false --es-server="" --es-index="" --alerting=true --uuid=${UUID} --qps=5 --burst=5
+  run_cmd kube-burner-ocp web-burner-cluster-density --gc=false --probe=false --es-server="" --es-index="" --alerting=true --uuid=${UUID} --qps=5 --burst=5
+  check_running_pods kube-burner-job=init-served-job 1
+  check_running_pods kube-burner-job=serving-job 4
+  check_running_pods kube-burner-job=cluster-density 35
+  check_running_pods kube-burner-job=app-job-1 3
 }
 
 @test "cluster-health" {
