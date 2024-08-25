@@ -1,0 +1,18 @@
+
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: l3-network-{{.Iteration}}
+  namespace: cluster-density-v2-{{.Iteration}}
+spec:
+  config: |2
+    {
+            "cniVersion": "0.3.1",
+            "name": "l3-network-{{.Iteration}}",
+            "type": "ovn-k8s-cni-overlay",
+            "topology":"layer3",
+            "subnets": "10.132.0.0/16/24",
+            "mtu": 1300,
+            "netAttachDefName": "cluster-density-v2-{{.Iteration}}/l3-network-{{.Iteration}}",
+            "role": "primary"
+    }
