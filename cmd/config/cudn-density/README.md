@@ -21,7 +21,6 @@
 - [Usage](#usage)
   - [Basic Run](#basic-run)
   - [Layer 3 with Local Indexing](#layer-3-with-local-indexing)
-  - [Simple Mode](#simple-mode-no-npsegressfwquotas)
   - [With Churn](#with-churn)
   - [With pprof and OpenSearch Indexing](#with-pprof-and-opensearch-indexing)
 - [CLI Flags](#cli-flags)
@@ -72,7 +71,7 @@ Each CUDN can use either **Layer 2** (default) or **Layer 3** (`--layer3`) topol
 
 ### Per-Namespace Objects
 
-Each namespace contains the following objects (in full mode):
+Each namespace contains the following objects:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -96,8 +95,6 @@ Each namespace contains the following objects (in full mode):
 │  └─────────────────────┘             └──────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-With [`--simple`](#cli-flags), only the main service, deployments, and configmap are created (no NPs, EgressFirewall, quotas, or limits).
 
 ### Communication Model
 
@@ -168,14 +165,14 @@ CUDN-0 group (namespaces 0-4):
 ## Job Pipeline
 
 ```
-Job 1          Job 2           Job 3         Job 4          Job 5          Job 6         Job 7        Job 8
-Create         Create          Deploy        Remove         Deploy         Deploy        Cleanup      Cleanup
-Namespaces     CUDNs           DaemonSets    DaemonSets     Infra          Workload      Namespaces   CUDNs
-───────── ──►  ────────── ──►  ────────── ►  ────────── ►  ────────── ──►  ────────── ►  ────────── ► ──────
- N ns          N/G CUDNs       N DaemonSets  (delete)       Services       Deployments   (GC only)    (GC only)
- + configmap   wait for        force OVN                    NPs            Pods          no-wait       wait
-               NetworkCreated  allocation                   EgressFW       2m metrics
-               measure latency on all nodes                 Quotas         pause
+Job 1          Job 2           Job 3         Job 4          Job 5              Job 6         Job 7
+Create         Create          Deploy        Remove         Deploy Infra +     Cleanup       Cleanup
+Namespaces     CUDNs           DaemonSets    DaemonSets     Workload           Namespaces    CUDNs
+───────── ──►  ────────── ──►  ────────── ►  ────────── ►  ────────────── ──►  ────────── ► ──────
+ N ns          N/G CUDNs       N DaemonSets  (delete)       Services, NPs      (GC only)    (GC only)
+ + configmap   wait for        force OVN                    EgressFW, Quotas   no-wait       wait
+               NetworkCreated  allocation                   + Deployments
+               measure latency on all nodes                 2m metrics pause
 ```
 
 | # | Job Name | Type | What It Does |
@@ -184,10 +181,9 @@ Namespaces     CUDNs           DaemonSets    DaemonSets     Infra          Workl
 | 2 | `cudn-density-create-cudn-l2/l3` | create | Creates N/group_size CUDNs, waits for `NetworkCreated=True`. [Measures CUDN latency](#cudn-latency-job-2) |
 | 3 | `cudn-density-ds` | create | Deploys a DaemonSet per namespace to [force OVN network allocation](#why-the-daemonset-step) on all worker nodes |
 | 4 | `cudn-density-remove-ds` | delete | Removes DaemonSets (they served their purpose) |
-| 5 | `cudn-density-infra` | create | Deploys services, NetworkPolicies, EgressFirewall, ResourceQuota, and LimitRange (skipped with `--simple`) |
-| 6 | `cudn-density-workload` | create | Deploys server, app, and client deployments. Pauses 2m after deployment for [metrics collection](#metrics-profiles) |
-| 7 | `cudn-density-cleanup-namespaces` | delete | [Deletes namespaces](#why-the-cudn-cleanup-step) without waiting (only when `--gc=true`). Pods are killed, NADs start terminating |
-| 8 | `cudn-density-cleanup-cudns` | delete | [Deletes CUDNs](#why-the-cudn-cleanup-step), releasing NAD finalizers so namespaces finish terminating (only when `--gc=true`) |
+| 5 | `cudn-density-workload` | create | Deploys infra (services, NPs, EgressFirewall, ResourceQuota, LimitRange) and workload (server, app, client deployments) in a single job. Infra objects have `churn: false`. Pauses 2m after deployment for [metrics collection](#metrics-profiles) |
+| 6 | `cudn-density-cleanup-namespaces` | delete | [Deletes namespaces](#why-the-cudn-cleanup-step) without waiting (only when `--gc=true`). Pods are killed, NADs start terminating |
+| 7 | `cudn-density-cleanup-cudns` | delete | [Deletes CUDNs](#why-the-cudn-cleanup-step), releasing NAD finalizers so namespaces finish terminating (only when `--gc=true`) |
 
 ### Why the DaemonSet Step?
 
@@ -201,7 +197,7 @@ CUDNs have a finalizer (`k8s.ovn.org/user-defined-network-protection`) that prev
 Namespace deletion blocked by → NAD finalizer blocked by → CUDN existence
 ```
 
-Job 7 deletes namespaces without waiting (`waitForDeletion: false`), then Job 8 deletes CUDNs (`waitForDeletion: true`), releasing the finalizers so namespaces finish terminating. See [Cleanup](#cleanup) for manual cleanup instructions.
+Job 6 deletes namespaces without waiting (`waitForDeletion: false`), then Job 7 deletes CUDNs (`waitForDeletion: true`), releasing the finalizers so namespaces finish terminating. See [Cleanup](#cleanup) for manual cleanup instructions.
 
 ---
 
@@ -209,12 +205,12 @@ Job 7 deletes namespaces without waiting (`waitForDeletion: false`), then Job 8 
 
 ### Pod Latency
 
-Standard kube-burner pod latency measurement tracking `PodScheduled`, `Initialized`, `ContainersReady`, and `Ready` conditions. Only indexed for Jobs 2 and 6:
+Standard kube-burner pod latency measurement tracking `PodScheduled`, `Initialized`, `ContainersReady`, and `Ready` conditions. Only indexed for Jobs 2 and 5:
 
 - **Job 2**: Empty (CUDNs are cluster-scoped, no pods)
-- **Job 6**: The meaningful measurement — includes OVN network plumbing time + cross-namespace readiness probe validation
+- **Job 5**: The meaningful measurement — includes OVN network plumbing time + cross-namespace readiness probe validation
 
-> **Note:** The `Ready` latency in Job 6 is higher than typical workloads because the readiness probe validates **cross-namespace** connectivity over the CUDN, not just local container readiness. This is by design — it directly measures CUDN network plumbing time.
+> **Note:** The `Ready` latency in Job 5 is higher than typical workloads because the readiness probe validates **cross-namespace** connectivity over the CUDN, not just local container readiness. This is by design — it directly measures CUDN network plumbing time.
 
 ### CUDN Latency (Job 2)
 
@@ -258,14 +254,6 @@ kube-burner-ocp cudn-density \
   --local-indexing
 ```
 
-### Simple Mode (no NPs/EgressFW/Quotas)
-
-```bash
-kube-burner-ocp cudn-density \
-  --iterations=50 \
-  --simple
-```
-
 ### With Churn
 
 > **Important:** Only `--churn-mode=objects` is supported. Namespace churn is not supported because [CUDN finalizers block namespace deletion](#why-the-cudn-cleanup-step).
@@ -298,7 +286,6 @@ kube-burner-ocp cudn-density \
 | `--iterations` | *(required)* | Total number of namespaces to create |
 | `--namespaces-per-cudn` | `5` | Namespaces per CUDN group. `iterations` must be divisible by this value |
 | `--layer3` | `false` | Use Layer3 topology (default is Layer2). See [Network Topology](#network-topology) |
-| `--simple` | `false` | Skip NetworkPolicies, EgressFirewall, ResourceQuota, LimitRange, and per-server services |
 | `--pod-ready-threshold` | `2m` | P99 pod ready timeout threshold |
 | `--pprof` | `false` | Enable [pprof collection](#pprof-collection) for ovnkube components |
 | `--pprof-interval` | `0` | Interval between pprof collections |
@@ -331,7 +318,6 @@ OVN LB entries = services/ns x 2 ports x namespaces. DaemonSet pods (transient, 
 |------|--------|-------------|
 | `--namespaces-per-cudn` | **High** | Most impactful for NP/address-set load. Each NP with cross-namespace selectors creates address sets spanning all namespaces in the CUDN group. Going from 5 → 20 quadruples the address set size |
 | `--iterations` | **High** | Controls total namespace count. More namespaces = more pods, services, NPs, and OVN logical ports |
-| `--simple` | **Medium** | Removes all infra objects (NPs, services, EgressFW, quotas). Useful to isolate pure pod/network plumbing performance from policy overhead |
 | `--layer3` | **Low** | L3 uses per-node subnets and routing, slightly more OVN-K work than flat L2 |
 
 ---
@@ -348,7 +334,7 @@ oc delete ns -l kube-burner.io/uuid --wait=false
 oc delete clusteruserdefinednetworks --all
 ```
 
-> **Note:** With `--gc=true`, this is handled automatically by [Job 7](#job-pipeline).
+> **Note:** With `--gc=true`, this is handled automatically by [Job 6](#job-pipeline).
 
 ---
 
@@ -358,7 +344,7 @@ oc delete clusteruserdefinednetworks --all
 
 | File | Description |
 |------|-------------|
-| [`cudn-density.yml`](cudn-density.yml) | Main job configuration with 8-job pipeline |
+| [`cudn-density.yml`](cudn-density.yml) | Main job configuration with 7-job pipeline |
 
 ### Network Templates
 

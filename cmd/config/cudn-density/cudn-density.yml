@@ -128,66 +128,7 @@ jobs:
         apiVersion: apps/v1
         labelSelector: {kube-burner.io/job: cudn-density-ds}
 
-  # Job 5: Deploy infrastructure objects (services, NPs, EgressFirewall, quotas)
-  {{ if not .SIMPLE }}
-  - name: cudn-density-infra
-    namespace: cudn-density
-    jobIterations: {{.JOB_ITERATIONS}}
-    qps: {{.QPS}}
-    burst: {{.BURST}}
-    namespacedIterations: true
-    waitWhenFinished: true
-    skipIndexing: true
-    namespaceLabels:
-      security.openshift.io/scc.podSecurityLabelSync: false
-      pod-security.kubernetes.io/enforce: privileged
-      pod-security.kubernetes.io/audit: privileged
-      pod-security.kubernetes.io/warn: privileged
-      k8s.ovn.org/primary-user-defined-network: ""
-    objects:
-      - objectTemplate: service.yml
-        replicas: 1
-
-      - objectTemplate: service-headless.yml
-        replicas: 1
-
-      - objectTemplate: service-server.yml
-        replicas: 2
-
-      - objectTemplate: np-deny-all.yml
-        replicas: 1
-
-      - objectTemplate: np-allow-cudn-ingress.yml
-        replicas: 1
-        inputVars:
-          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
-
-      - objectTemplate: np-allow-cudn-egress.yml
-        replicas: 1
-        inputVars:
-          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
-
-      - objectTemplate: np-allow-app-ingress.yml
-        replicas: 1
-        inputVars:
-          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
-
-      - objectTemplate: np-allow-app-egress.yml
-        replicas: 1
-        inputVars:
-          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
-
-      - objectTemplate: egressfirewall.yml
-        replicas: 1
-
-      - objectTemplate: resourcequota.yml
-        replicas: 1
-
-      - objectTemplate: limitrange.yml
-        replicas: 1
-  {{ end }}
-
-  # Job 6: Deploy workload (servers + clients with tiered pipeline communication)
+  # Job 5: Deploy infra + workload (services, NPs, EgressFirewall, quotas, deployments)
   - name: cudn-density-workload
     namespace: cudn-density
     jobIterations: {{.JOB_ITERATIONS}}
@@ -218,10 +159,57 @@ jobs:
       pod-security.kubernetes.io/warn: privileged
       k8s.ovn.org/primary-user-defined-network: ""
     objects:
-      {{ if .SIMPLE }}
       - objectTemplate: service.yml
         replicas: 1
-      {{ end }}
+        churn: false
+
+      - objectTemplate: service-headless.yml
+        replicas: 1
+        churn: false
+
+      - objectTemplate: service-server.yml
+        replicas: 2
+        churn: false
+
+      - objectTemplate: np-deny-all.yml
+        replicas: 1
+        churn: false
+
+      - objectTemplate: np-allow-cudn-ingress.yml
+        replicas: 1
+        churn: false
+        inputVars:
+          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
+
+      - objectTemplate: np-allow-cudn-egress.yml
+        replicas: 1
+        churn: false
+        inputVars:
+          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
+
+      - objectTemplate: np-allow-app-ingress.yml
+        replicas: 1
+        churn: false
+        inputVars:
+          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
+
+      - objectTemplate: np-allow-app-egress.yml
+        replicas: 1
+        churn: false
+        inputVars:
+          namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
+
+      - objectTemplate: egressfirewall.yml
+        replicas: 1
+        churn: false
+
+      - objectTemplate: resourcequota.yml
+        replicas: 1
+        churn: false
+
+      - objectTemplate: limitrange.yml
+        replicas: 1
+        churn: false
 
       - objectTemplate: deployment-server.yml
         replicas: 2
@@ -240,9 +228,9 @@ jobs:
           namespaces_per_cudn: {{.NAMESPACES_PER_CUDN}}
 
 {{ if .GC }}
-  # Job 7: Delete workload namespaces (kills pods, NADs start terminating)
+  # Job 6: Delete workload namespaces (kills pods, NADs start terminating)
   # Uses waitForDeletion: false because namespaces will be stuck in Terminating
-  # until CUDNs are deleted in Job 8 (NAD finalizers block namespace deletion).
+  # until CUDNs are deleted in Job 7 (NAD finalizers block namespace deletion).
   - name: cudn-density-cleanup-namespaces
     jobType: delete
     waitForDeletion: false
@@ -254,7 +242,7 @@ jobs:
         apiVersion: v1
         labelSelector: {kube-burner.io/job: cudn-density-create-namespaces}
 
-  # Job 8: Delete CUDNs (releases NAD finalizers, namespaces finish terminating)
+  # Job 7: Delete CUDNs (releases NAD finalizers, namespaces finish terminating)
   - name: cudn-density-cleanup-cudns
     jobType: delete
     waitForDeletion: true
