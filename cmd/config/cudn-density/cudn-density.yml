@@ -138,7 +138,7 @@ jobs:
         churn: false
 
       - objectTemplate: service-server.yml
-        replicas: 2
+        replicas: 1
         churn: false
 
       - objectTemplate: np-deny-all.yml
@@ -182,14 +182,14 @@ jobs:
         churn: false
 
       - objectTemplate: deployment-server.yml
-        replicas: 2
+        replicas: 1
         inputVars:
-          podReplicas: 3
+          podReplicas: 2
 
       - objectTemplate: deployment-app.yml
         replicas: 1
         inputVars:
-          podReplicas: 2
+          podReplicas: 1
 
       - objectTemplate: deployment-client.yml
         replicas: 1
