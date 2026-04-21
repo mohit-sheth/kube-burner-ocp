@@ -35,7 +35,7 @@ var cudnMeasurementFactoryMap = map[string]kubeburnermeasurements.NewMeasurement
 func NewCudnDensity(wh *workloads.WorkloadHelper) *cobra.Command {
 	var churnPercent, churnCycles, iterations, namespacesPerCudn int
 	var l3, pprof bool
-	var churnDelay, churnDuration, podReadyThreshold, pprofInterval time.Duration
+	var churnDelay, churnDuration, podReadyThreshold, pprofInterval, cudnSettlingPause time.Duration
 	var churnMode string
 	var metricsProfiles []string
 	var rc int
@@ -64,6 +64,7 @@ func NewCudnDensity(wh *workloads.WorkloadHelper) *cobra.Command {
 
 			AdditionalVars["PPROF"] = pprof
 			AdditionalVars["PPROF_INTERVAL"] = pprofInterval.String()
+			AdditionalVars["CUDN_SETTLING_PAUSE"] = cudnSettlingPause
 			AdditionalVars["CHURN_CYCLES"] = churnCycles
 			AdditionalVars["CHURN_DURATION"] = churnDuration
 			AdditionalVars["CHURN_DELAY"] = churnDelay
@@ -83,6 +84,7 @@ func NewCudnDensity(wh *workloads.WorkloadHelper) *cobra.Command {
 	cmd.Flags().BoolVar(&l3, "layer3", false, "Use Layer3 topology instead of Layer2")
 	cmd.Flags().BoolVar(&pprof, "pprof", false, "Enable pprof collection for ovnkube components")
 	cmd.Flags().DurationVar(&pprofInterval, "pprof-interval", 0, "Interval between pprof collections")
+	cmd.Flags().DurationVar(&cudnSettlingPause, "cudn-settling-pause", 30*time.Minute, "Pause after CUDN creation to allow OVN-K network settling before workload deployment")
 	cmd.Flags().IntVar(&churnCycles, "churn-cycles", 0, "Churn cycles to execute")
 	cmd.Flags().DurationVar(&churnDuration, "churn-duration", 0, "Churn duration")
 	cmd.Flags().DurationVar(&churnDelay, "churn-delay", 2*time.Minute, "Time to wait between each churn")
