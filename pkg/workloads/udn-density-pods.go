@@ -27,7 +27,7 @@ import (
 // NewUDNDensityPods holds udn-density-pods workload
 func NewUDNDensityPods(wh *workloads.WorkloadHelper) *cobra.Command {
 	var churnPercent, churnCycles, iterations int
-	var l3, simple, pprof bool
+	var l3, simple, pprof, cudn bool
 	var churnDelay, churnDuration, podReadyThreshold, pprofInterval time.Duration
 	var deletionStrategy, churnMode string
 	var metricsProfiles []string
@@ -38,11 +38,13 @@ func NewUDNDensityPods(wh *workloads.WorkloadHelper) *cobra.Command {
 		SilenceUsage: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			setMetrics(cmd, metricsProfiles)
-			// Disable l3 when the user chooses l2
 			if l3 {
 				log.Info("Layer 3 is enabled")
 			} else {
 				log.Info("Layer 2 is enabled")
+			}
+			if cudn {
+				log.Info("CUDN mode enabled: deploying ClusterUserDefinedNetworks instead of UserDefinedNetworks")
 			}
 			if churnDuration > 0 || churnCycles > 0 {
 				log.Info("Churn is enabled, there will not be a pause after UDN creation")
@@ -60,6 +62,7 @@ func NewUDNDensityPods(wh *workloads.WorkloadHelper) *cobra.Command {
 			AdditionalVars["JOB_ITERATIONS"] = iterations
 			AdditionalVars["POD_READY_THRESHOLD"] = podReadyThreshold
 			AdditionalVars["ENABLE_LAYER_3"] = l3
+			AdditionalVars["ENABLE_CUDN"] = cudn
 			rc = RunWorkload(cmd, wh, cmd.Name()+".yml")
 		},
 		PostRun: func(cmd *cobra.Command, args []string) {
@@ -70,6 +73,7 @@ func NewUDNDensityPods(wh *workloads.WorkloadHelper) *cobra.Command {
 	cmd.Flags().BoolVar(&pprof, "pprof", false, "Enable pprof collection")
 	cmd.Flags().DurationVar(&pprofInterval, "pprof-interval", 0, "Interval between pprof collections")
 	cmd.Flags().BoolVar(&simple, "simple", false, "only client and server pods to be deployed, no services and networkpolicies")
+	cmd.Flags().BoolVar(&cudn, "cudn", false, "Deploy ClusterUserDefinedNetworks instead of UserDefinedNetworks")
 	cmd.Flags().IntVar(&churnCycles, "churn-cycles", 0, "Churn cycles to execute")
 	cmd.Flags().DurationVar(&churnDuration, "churn-duration", 0, "Churn duration")
 	cmd.Flags().DurationVar(&churnDelay, "churn-delay", 2*time.Minute, "Time to wait between each churn")
