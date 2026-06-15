@@ -10,12 +10,12 @@
   - [Communication Model](#communication-model)
   - [Cross-Namespace Traffic Pattern](#cross-namespace-traffic-pattern)
   - [OVN-K Load Profile](#ovn-k-load-profile)
-- [Job Pipeline](#job-pipeline)
-  - [CUDN Settling Pause](#cudn-settling-pause)
+- [Job Structure](#job-structure)
+  - [Grouped Execution](#grouped-execution)
   - [Why the CUDN Cleanup Step?](#why-the-cudn-cleanup-step)
 - [Measurements](#measurements)
   - [Pod Latency](#pod-latency)
-  - [CUDN Latency](#cudn-latency-job-2)
+  - [CUDN Latency](#cudn-latency)
   - [Metrics Profiles](#metrics-profiles)
   - [pprof Collection](#pprof-collection)
 - [Usage](#usage)
@@ -161,31 +161,41 @@ CUDN-0 group (namespaces 0-4):
 
 ---
 
-## Job Pipeline
+## Job Structure
+
+The workload uses a single grouped job with two object groups, followed by cleanup jobs:
 
 ```
-Job 1          Job 2              Job 3              Job 4         Job 5
-Create         Create CUDNs +     Deploy Infra +     Cleanup       Cleanup
-Namespaces     Settling Pause     Workload           Namespaces    CUDNs
-───────── ──►  ────────────── ──►  ────────────── ──►  ────────── ► ──────
- N ns          N/G CUDNs          Services, NPs      (GC only)    (GC only)
- + configmap   wait for           EgressFW, Quotas   no-wait       wait
-               NetworkAllocation  + Deployments
-               measure latency    2m metrics pause
-               + settling pause
+Job 1: cudn-density                      Job 2: cleanup-ns    Job 3: cleanup-cudns
+┌──────────────────────────────────┐
+│  Group 1: CUDNs                  │
+│    repeatEveryNIterations         │
+│    churn: false                   │
+│    wait NetworkAllocationSucceeded│
+│                                   │
+│  Group 2: Workload                │
+│    Services, NPs, EgressFW,       │
+│    Quotas, LimitRange,            │     delete ns           delete CUDNs
+│    Deployments                    │ ──► (no-wait)       ──► (wait)
+│    + churn (if enabled)           │     (GC only)           (GC only)
+│    + metrics pause                │
+└──────────────────────────────────┘
 ```
 
 | # | Job Name | Type | What It Does |
 |---|----------|------|-------------|
-| 1 | `cudn-density-create-namespaces` | create | Creates N namespaces with UDN labels + a configmap per namespace |
-| 2 | `cudn-density-create-cudn-l2/l3` | create | Creates N/group_size CUDNs, waits for `NetworkAllocationSucceeded=True`. [Measures CUDN latency](#cudn-latency-job-2). Then pauses for [`--job-pause`](#cudn-settling-pause) to allow OVN-K to settle |
-| 3 | `cudn-density-workload` | create | Deploys infra (services, NPs, EgressFirewall, ResourceQuota, LimitRange) and workload (server, app, client deployments) in a single job. Infra objects have `churn: false`. Pauses 2m after deployment for [metrics collection](#metrics-profiles) |
-| 4 | `cudn-density-cleanup-namespaces` | delete | [Deletes namespaces](#why-the-cudn-cleanup-step) without waiting (only when `--gc=true`). Pods are killed, NADs start terminating |
-| 5 | `cudn-density-cleanup-cudns` | delete | [Deletes CUDNs](#why-the-cudn-cleanup-step), releasing NAD finalizers so namespaces finish terminating (only when `--gc=true`) |
+| 1 | `cudn-density` | create | Single grouped job: Group 1 creates CUDNs (one per `namespaces-per-cudn` iterations, `churn: false`), Group 2 deploys all workload objects per namespace. Measures both [CUDN latency](#cudn-latency) and [pod latency](#pod-latency). Supports [pod churn](#with-pod-churn) and [CUDN churn](#with-cudn-churn) |
+| 2 | `cudn-density-cleanup-namespaces` | delete | [Deletes namespaces](#why-the-cudn-cleanup-step) without waiting (only when `--gc=true`). Pods are killed, NADs start terminating |
+| 3 | `cudn-density-cleanup-cudns` | delete | [Deletes CUDNs](#why-the-cudn-cleanup-step), releasing NAD finalizers so namespaces finish terminating (only when `--gc=true`) |
 
-### CUDN Settling Pause
+### Grouped Execution
 
-After CUDN creation (Job 2), a configurable pause (`--job-pause`, default 30m) allows OVN-K to finish compiling the CUDN logical topology in the NB/SB databases and programming OVS flows on all nodes before workload pods are deployed. This is particularly important for Layer 2 topologies with Interconnect enabled, where the OVN NB DB client becomes a bottleneck when processing CUDN topology changes and pod port bindings simultaneously.
+Objects are organized into two groups using kube-burner's grouped execution:
+
+- **Group 1** (CUDNs): Created with `repeatEveryNIterations` so one CUDN is provisioned per group of namespaces. Has `churn: false` so CUDNs are not churned during pod churn. The job pauses for `--job-pause` after creation to allow OVN-K to settle.
+- **Group 2** (Workload): All per-namespace objects (services, NPs, egressfirewall, quotas, deployments). Infrastructure objects have `churn: false`; only deployments are churnable.
+
+This ensures CUDNs are ready before workload objects are deployed, within a single job.
 
 ### Why the CUDN Cleanup Step?
 
@@ -203,14 +213,11 @@ Job 4 deletes namespaces without waiting (`waitForDeletion: false`), then Job 5 
 
 ### Pod Latency
 
-Standard kube-burner pod latency measurement tracking `PodScheduled`, `Initialized`, `ContainersReady`, and `Ready` conditions. Only indexed for Jobs 2 and 3:
+Standard kube-burner pod latency measurement tracking `PodScheduled`, `Initialized`, `ContainersReady`, and `Ready` conditions. Includes OVN network plumbing time + cross-namespace readiness probe validation.
 
-- **Job 2**: Empty (CUDNs are cluster-scoped, no pods)
-- **Job 3**: The meaningful measurement — includes OVN network plumbing time + cross-namespace readiness probe validation
+> **Note:** The `Ready` latency is higher than typical workloads because the readiness probe validates **cross-namespace** connectivity over the CUDN, not just local container readiness. This is by design — it directly measures CUDN network plumbing time.
 
-> **Note:** The `Ready` latency in Job 3 is higher than typical workloads because the readiness probe validates **cross-namespace** connectivity over the CUDN, not just local container readiness. This is by design — it directly measures CUDN network plumbing time.
-
-### CUDN Latency (Job 2)
+### CUDN Latency
 
 Custom measurement (`cudnLatency`) that tracks how long each CUDN takes from creation to `NetworkAllocationSucceeded=True`. Uses the condition's `lastTransitionTime` for accurate measurement rather than wall-clock time. Results are indexed as `cudnLatencyMeasurement` documents with `NetworkAllocationSucceededLatency` in milliseconds.
 
@@ -347,7 +354,7 @@ oc delete ns -l kube-burner.io/uuid --wait=false
 oc delete clusteruserdefinednetworks --all
 ```
 
-> **Note:** With `--gc=true`, this is handled automatically by [Job 4](#job-pipeline).
+> **Note:** With `--gc=true`, this is handled automatically by the [cleanup jobs](#job-structure).
 
 ---
 
@@ -357,8 +364,7 @@ oc delete clusteruserdefinednetworks --all
 
 | File | Description |
 |------|-------------|
-| [`cudn-density.yml`](cudn-density.yml) | Main job configuration with 5-job pipeline (pod churn) |
-| [`cudn-density-cudn-churn.yml`](cudn-density-cudn-churn.yml) | CUDN churn config with grouped execution (`--churn-target=cudns`) |
+| [`cudn-density.yml`](cudn-density.yml) | Unified job configuration with grouped execution (supports no churn, pod churn, and CUDN churn) |
 
 ### Network Templates
 

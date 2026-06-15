@@ -87,11 +87,7 @@ func NewCudnDensity(wh *workloads.WorkloadHelper) *cobra.Command {
 			AdditionalVars["POD_READY_THRESHOLD"] = podReadyThreshold
 			AdditionalVars["ENABLE_LAYER_3"] = l3
 			wh.SetMeasurements(cudnMeasurementFactoryMap)
-			configFile := "cudn-density.yml"
-			if churnTarget == churnTargetCudns {
-				configFile = "cudn-density-cudn-churn.yml"
-			}
-			rc = RunWorkload(cmd, wh, configFile)
+			rc = RunWorkload(cmd, wh, cmd.Name()+".yml")
 		},
 		PostRun: func(cmd *cobra.Command, args []string) {
 			os.Exit(rc)
